@@ -1,0 +1,201 @@
+---
+title: "Assignment 1 Solution: Drizly Case"
+author: "Sina Bahrami"
+date: "2023-01-20"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+library(dplyr)
+library(ggplot2)
+options(tibble.print_max = Inf) # to show all the rows.
+```
+
+# Question 1
+
+## Part 1.1
+
+First, the csv file is assigned to the variable "drizly_df", then Weekdays field is calculated and added to it based on delivery dates, then N/A values are removed from Delivery.Time column.
+
+```{r load-drizly}
+drizly_df = read.csv("Case2.csv")
+drizly_df$Order.Date <- as.Date(drizly_df$Order.Date, tryFormats = "%m/%d/%Y")
+drizly_df$Weekday <- weekdays(drizly_df$Order.Date)
+drizly_df$Delivery.Time = as.numeric(sub("N/A", "", drizly_df$Delivery.Time))
+drizly_df$Retailer.ID <- as.character(drizly_df$Retailer.ID)
+```
+
+To obtain the average delivery time of each retailer on each weekday, first those records with empty delivery time are filtered out, then the data frame is grouped based on retailer ID and weekday. Finally, delivery time is averaged over each retailer and weekday. The results are given in the table below.
+
+```{r obtain_avg}
+options(dplyr.summarise.inform = FALSE)
+avg_del_time_day <- drizly_df %>%
+  group_by(Retailer.ID,Weekday) %>%
+  summarize(Avg.Del.Time = mean(Delivery.Time, na.rm = TRUE))
+avg_del_time_day
+```
+
+With the obtained average values for different retailers and weekdays, two-way ANOVA  is applied to do hypothesis test whether the average delivery time over the week is different for each retailer. The hypothesis is formulated as:
+
+H0: Retailers have equal average of delivery time on each day
+H1: There are at least two retailers with different delivery time on each day
+
+P-value(retailers) = 0.032 < 0.05 in the ANOVA table below, so H0 is rejected i.e. at least two retailers have different average delivery time on each day at level of significance of 0.05. However, at alpha < 0.032 there is no significant difference between them.
+
+```{r del_time_anova}
+aov_result <- avg_del_time_day %>%
+  aov(formula = Avg.Del.Time ~ Weekday + Retailer.ID)
+summary(aov_result)
+```
+
+## Part 1.2
+
+The void rate is obtained by counting the total number of voids and delivered orders for each retailer on each day then dividing the number of voids by corresponding total number of orders. The results are shown in the table below.
+
+```{r void_rate_summary}
+status_days <- drizly_df %>%
+  group_by(Retailer.ID, Weekday) %>%
+  summarise(Void.Count = sum(Order.Status == "Void"),
+            Delivered.Count = sum(Order.Status == "Delivered"),
+            Void.Rate = Void.Count/(Void.Count+Delivered.Count))
+status_days
+```
+
+Two-way ANOVA is performed on the data frame obtained in the previous part for the hypothesis test:
+
+H0: Retailers have equal void rate
+H1: There are at least two retailers with different void rate
+
+P-value(retailers) = 0.501 > 0.05 in the ANOVA table below, so H0 is not rejected i.e. there is not enough evidence that retailers have different void rates at level of significance of 0.05.
+
+```{r void_rate_anova}
+status_days$Retailer.ID <- as.character(status_days$Retailer.ID)
+
+aov_result <- status_days %>%
+  aov(formula = Void.Rate ~ Weekday + Retailer.ID)
+summary(aov_result)
+```
+
+## Part 1.3
+
+The total GMV of each retailer is calculated below.
+
+```{r GMV_summary}
+GMV_day <- drizly_df %>%
+  group_by(Weekday, Retailer.ID) %>%
+  summarize(GMV.Day = sum(GMV))
+GMV_day
+```
+
+The result of two-way ANOVA shows that at least two retailers are different in terms of GMV on each day at 0.05 level of significance.
+
+H0: Retailers have equal total GMV on each day
+H1: There are at least two retailers with different total GMV
+
+P-value(retailers) = 0.0034 < 0.05 in the ANOVA table below, so H0 is rejected i.e. at least two retailers have different total GMV at level of significance 0.05.
+
+```{r GMV-anova}
+aov_result <- GMV_day %>%
+  aov(formula = GMV.Day ~ Weekday + Retailer.ID)
+summary(aov_result)
+```
+
+The results obtained in part 1.1, 1.2 and 1.3 shows that at least two retailers are different in terms of Delivery time and GMV but there is not enough evidence that void rates are different at alpha=0.05.
+
+# Question 2
+
+## Part 2.1
+
+In the following , first the format of order date and time are corrected, then a new column is created to represent 3-hour time intervals called interval 1, 2 and 3 with interval 1 starting from 12:00 PM and so on. The limits of time intervals are stored in a variable called "tms", then order times are compared to each interval limit to populate interval column with corresponding interval number.
+The results are obtained first as aggregate value over all the three days and then over each separate day.
+A new data frame is created based on the intervals with corresponding total GVMs and number of orders of all Retailers aggregated over dates between 3rd and 5th April.
+
+```{r GMV_interval}
+tms <- as.POSIXct(c("2020-01-01 12:00:00", "2020-01-01 15:00:00", "2020-01-01 18:00:00", "2020-01-01 21:00:00",  "2020-01-01 24:00:00"))
+tms <- format(tms, format = "%H:%M %p")
+drizly_df$Order.Date <- as.Date(drizly_df$Order.Date)
+drizly_df$Order.Time <- as.POSIXct(drizly_df$Order.Time, format = "%I:%M:%S %p")
+drizly_df$Order.Time <- format(drizly_df$Order.Time, format = "%H:%M %p")
+
+drizly_df$Interval <- 
+  1*(drizly_df$Order.Time >= tms[1] & drizly_df$Order.Time < tms[2]) +
+  2*(drizly_df$Order.Time >= tms[2] & drizly_df$Order.Time < tms[3]) +
+  3*(drizly_df$Order.Time >= tms[3] & drizly_df$Order.Time < tms[4]) +
+  4*(drizly_df$Order.Time >= tms[4] & drizly_df$Order.Time < tms[5])
+
+drizly_df_int <- drizly_df
+drizly_df_int <- drizly_df_int %>%
+  filter(Order.Date >= "2020-04-03" & Order.Date <= "2020-04-05") %>%
+  group_by(Interval) %>%
+  summarize(GMV.Total = sum(GMV), Order.Count = n())
+drizly_df_int
+
+coeff <- 50
+ggplot(data = drizly_df_int, aes(x=Interval)) +
+  geom_col(aes(y=GMV.Total, color = "GMV Total"), fill="light gray") +
+  geom_line(aes(y=Order.Count*coeff, color = "Number of Orders"), size=1) +
+  scale_y_continuous(
+    name = "Total GMV",
+    sec.axis = sec_axis(~./coeff, name="Number of Orders")
+  ) +
+  labs(x="3-hour Time Intervals", title="Total GMV and Number of Orders aggregated over the time interval between 3rd April and 5th. April") +
+  theme_classic() +
+  theme(legend.position="bottom")
+  
+```
+
+Total GMV and number of orders between 3rd April and 5th April are provided in the figure above.
+
+To compare the results day by day from 3rd to 5th April, similar calculations are carried out below:
+
+```{r GMV_interval_d2d}
+
+drizly_df$Interval <- 
+  1*(drizly_df$Order.Time >= tms[1] & drizly_df$Order.Time < tms[2]) +
+  2*(drizly_df$Order.Time >= tms[2] & drizly_df$Order.Time < tms[3]) +
+  3*(drizly_df$Order.Time >= tms[3] & drizly_df$Order.Time < tms[4]) +
+  4*(drizly_df$Order.Time >= tms[4] & drizly_df$Order.Time < tms[5])
+
+drizly_df_int <- drizly_df
+drizly_df_int <- drizly_df_int %>%
+  filter(Order.Date >= "2020-04-03" & Order.Date <= "2020-04-05") %>%
+  group_by(Interval, Order.Date) %>%
+  summarize(GMV.Total = sum(GMV), Order.Count = n())
+drizly_df_int
+
+coeff <- 50
+ggplot(data = drizly_df_int, aes(x=Interval)) +
+  geom_col(aes(y=GMV.Total, color="Total GVM"), fill="light gray") +
+  geom_line(aes(y=Order.Count*coeff, color="Number of Orders"), size=1) +
+  facet_grid(cols = vars(Order.Date)) +
+  scale_y_continuous(
+    name = "Total GMV",
+    sec.axis = sec_axis(~./coeff, name="Number of Orders")
+  ) +
+  labs(x="3-hour Time Intervals", title="Total GMV and Number of Orders on each day between 3rd April and 5th April") +
+  theme_classic() +
+  theme(legend.position="bottom")
+```
+
+## Part 2.2
+
+As shown in the figures, number of orders and total GMV increase as it goes to 2nd and 3rd time interval with maximum at the 3rd time interval. However, between Interval 1 and 2 the growth rate is the highest. On 3rd April, the total GVM for interval 2 and 3 is almost the same and number of orders sees only a little increase compared to the other days.
+Also the results show that variations of number of orders and total GVM follow a similar pattern.
+
+## Part 2.3
+
+Management can use these data to improve GMV in several ways, which can be categorized based on speed and impact:
+
+* Slow and low impact
+    + Forward deliveries that are cancelled by retailers to other retailers particularly at the 2nd and 3rd time. 
+    + Find more retailers and encourage them to use their services
+* Slow but high impact
+    + Adjust pricing of the products: considering higher pricing at the 1st interval and lower for the 2nd and 3rd.
+    + Hire more staff who can work at the 2nd and 3rd interval
+* Fast but low impact
+    + Increase delivery fee for the 1st interval but decrease it for the 2nd and 3rd.
+* Fast and high impact
+    + Set a minimum on the price of products sold at the 2nd and 3rd interval
+    + Accept scheduled order during the 2nd and 3rd interval
